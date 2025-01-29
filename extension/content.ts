@@ -201,27 +201,25 @@ function processTextNode(node:CharacterData, hide_completely:boolean, regex:RegE
 
 let observer:MutationObserver|null = null;
 
-function startObservingChanges(processCallback:(node:CharacterData)=>void) {
+function startObservingChanges(processCallback: (node: CharacterData) => void) {
   const targetNode = document.documentElement;
   const config = {
-    attributes: false,
-    childList: true,
-    characterData: true,
-    subtree: true,
+    attributes: true,  // Detects attribute changes (important for Reddit's React updates)
+    childList: true,   // Detects new elements being added
+    characterData: true, // Detects text content changes
+    subtree: true       // Watches the entire document
   };
-  const callback = function(mutationsList:MutationRecord[]) {
+
+  const callback = function(mutationsList: MutationRecord[]) {
     for (const mutation of mutationsList) {
-      if (mutation.type === 'characterData') {
-        if (!(mutation.target instanceof CharacterData)) {
-          throw new Error('expected mutation.target to be instance of CharacterData');
-        }
-        processCallback(mutation.target);
-      } else if (mutation.type === 'childList') {
-        for (const node of mutation.addedNodes) {
+      if (mutation.type === 'attributes') {
+        // Detects when Reddit updates post attributes dynamically
+        if (mutation.target instanceof HTMLElement) {
+          //console.log("DEBUG: Attribute change detected in", mutation.target);
           const walk = document.createTreeWalker(
-            node,
+            mutation.target,
             NodeFilter.SHOW_TEXT,
-            null,
+            null
           );
           while (walk.nextNode()) {
             if (walk.currentNode instanceof CharacterData) {
@@ -229,23 +227,30 @@ function startObservingChanges(processCallback:(node:CharacterData)=>void) {
             }
           }
         }
-      } else if (mutation.type === 'attributes') {
-        const walk = document.createTreeWalker(
-          mutation.target,
-          NodeFilter.SHOW_TEXT,
-          null,
-        );
-        while (walk.nextNode()) {
-          if (walk.currentNode instanceof CharacterData) {
-            processCallback(walk.currentNode);
+      } else if (mutation.type === 'childList') {
+        // Detects newly added elements
+        mutation.addedNodes.forEach(node => {
+          const walk = document.createTreeWalker(
+            node,
+            NodeFilter.SHOW_TEXT,
+            null
+          );
+          while (walk.nextNode()) {
+            if (walk.currentNode instanceof CharacterData) {
+              processCallback(walk.currentNode);
+            }
           }
+        });
+      } else if (mutation.type === 'characterData') {
+        // Detects text changes inside elements
+        if (mutation.target instanceof CharacterData) {
+          processCallback(mutation.target);
         }
       }
     }
   };
-  if (observer) {
-    observer.disconnect();
-  }
+
+  if (observer) observer.disconnect();
   observer = new MutationObserver(callback);
   observer.observe(targetNode, config);
 }
